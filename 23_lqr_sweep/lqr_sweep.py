@@ -1,0 +1,111 @@
+"""LQR closed-loop response for varying control penalty.
+
+Plant: double integrator
+    dot x_1 = x_2,   dot x_2 = u,
+state x = (x_1, x_2)^T, scalar input u, initial condition x_0 = (1, 0)^T.
+
+Cost:
+    J = int_0^inf (x^T Q x + R u^2) dt,    Q = I,    R = rho.
+
+Five values of rho from cheap control (rho = 0.01) to expensive control
+(rho = 100). For each, the LQR gain K is obtained from the algebraic
+Riccati equation and the closed-loop trajectory is integrated.
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import solve_continuous_are
+from scipy.integrate import solve_ivp
+
+# MATLAB colors
+BLUE      = "#0072BD"
+RED       = "#D95319"
+YELLOW    = "#EDB120"
+PURPLE    = "#7E2F8E"
+GREEN     = "#77AC30"
+GRAY      = "#808080"
+DARK_GRAY = "#404040"
+
+plt.rcParams.update({
+    "font.family": "DejaVu Sans",
+    "font.size": 12,
+    "axes.labelsize": 13,
+    "axes.titlesize": 13.5,
+    "legend.fontsize": 10.5,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "svg.fonttype": "path",       # embed every glyph as a path, no font dependency
+    "mathtext.fontset": "cm",
+})
+
+# -------------------------------------------------------------------
+# Plant (double integrator)
+# -------------------------------------------------------------------
+A = np.array([[0.0, 1.0],
+              [0.0, 0.0]])
+B = np.array([[0.0],
+              [1.0]])
+
+# -------------------------------------------------------------------
+# LQR sweep
+# -------------------------------------------------------------------
+Q     = np.eye(2)
+rhos  = [0.01, 0.1, 1.0, 10.0, 100.0]
+# Color map ordered cheap -> expensive (blue = aggressive, red = conservative)
+colors = [BLUE, GREEN, DARK_GRAY, YELLOW, RED]
+
+t_end = 10.0
+t     = np.linspace(0.0, t_end, 2000)
+x0    = np.array([1.0, 0.0])
+
+fig, (ax_x, ax_u) = plt.subplots(
+    2, 1, figsize=(7.6, 6.4), sharex=True,
+    gridspec_kw={"hspace": 0.15},
+)
+
+for rho, c in zip(rhos, colors):
+    R = np.array([[rho]])
+    P = solve_continuous_are(A, B, Q, R)
+    K = (np.linalg.solve(R, B.T @ P)).flatten()     # 1 x 2
+
+    A_cl = A - np.outer(B.flatten(), K)
+    sol = solve_ivp(
+        lambda tt, xx: A_cl @ xx,
+        [0.0, t_end], x0, t_eval=t,
+        rtol=1e-9, atol=1e-11,
+    )
+    x_traj = sol.y                                  # (2, N)
+    u_traj = -K @ x_traj                            # (N,)
+
+    label = fr"$\rho = {rho:g}$"
+    ax_x.plot(t, x_traj[0], color=c, lw=2.0, label=label)
+    ax_u.plot(t, u_traj,    color=c, lw=2.0)
+
+# -------------------------------------------------------------------
+# Cosmetics
+# -------------------------------------------------------------------
+for ax_ in (ax_x, ax_u):
+    ax_.axhline(0, color="black", lw=0.6)
+    ax_.grid(True, linestyle=":", alpha=0.5)
+    ax_.set_xlim(0, t_end)
+
+ax_x.set_ylabel(r"position  $x_1(t)$")
+ax_u.set_ylabel(r"input  $u(t)$")
+ax_u.set_xlabel(r"$t$")
+handles, labels = ax_x.get_legend_handles_labels()
+ax_u.legend(handles, labels, loc="lower right", framealpha=0.95, ncol=1)
+
+# Compose a two-line title
+fig.suptitle(
+    r"LQR closed-loop response for varying control penalty"
+    "\n"
+    r"$\dot{x}_1 = x_2,\;\;\dot{x}_2 = u,\;\;Q = I,\;\;R = \rho,\;\;"
+    r"x_0 = (1,\,0)^{T}$",
+    fontsize=13, y=0.995,
+)
+
+plt.tight_layout(rect=[0, 0, 1, 0.95])
+plt.savefig("/mnt/user-data/outputs/lqr_weight_sweep.svg",
+            format="svg", bbox_inches="tight")
+plt.close(fig)
+print("Wrote /mnt/user-data/outputs/lqr_weight_sweep.svg")
