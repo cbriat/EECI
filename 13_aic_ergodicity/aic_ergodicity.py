@@ -1,0 +1,109 @@
+"""
+Ergodicity of the AIC: the time-average of a single SSA trajectory
+converges to p* = mu/theta = 1 for both stable and unstable parameters.
+"""
+import numpy as np
+import matplotlib, matplotlib.pyplot as plt
+
+matplotlib.rcParams.update({
+    "svg.fonttype": "path", "mathtext.fontset": "cm",
+    "font.family": "serif", "font.size": 14,
+    "axes.labelsize": 16, "axes.titlesize": 15,
+    "legend.fontsize": 11, "xtick.labelsize": 13, "ytick.labelsize": 13,
+    "lines.linewidth": 2.5, "axes.linewidth": 0.8,
+    "axes.spines.top": False, "axes.spines.right": False,
+})
+BLUE="#0072BD"; ORANGE="#D95319"; GREEN="#77AC30"; GRAY="0.55"
+OUT = "/mnt/user-data/outputs"
+
+def ssa_with_running_avg(k, eta, T, seed, n_samples=2000):
+    """Run SSA, return sampled trajectory and running time-average."""
+    rng = np.random.default_rng(seed)
+    m, p, z1, z2 = 0, 0, 5, 0
+    t = 0.0
+    cum_p = 0.0  # cumulative ∫P(s)ds
+
+    # Sample at regular intervals for plotting
+    t_sample = np.linspace(0, T, n_samples)
+    p_sample = np.zeros(n_samples)
+    avg_sample = np.zeros(n_samples)
+    si = 0  # sample index
+
+    while t < T and si < n_samples:
+        a1 = k*z1; a2 = float(m); a3 = float(m)
+        a4 = float(p); a5 = 1.0; a6 = float(p)
+        a7 = eta*z1*z2
+        a_tot = a1+a2+a3+a4+a5+a6+a7
+        if a_tot <= 0: break
+        dt = rng.exponential(1.0/a_tot)
+        t_new = t + dt
+
+        # Record samples that fall in [t, t_new)
+        while si < n_samples and t_sample[si] < t_new:
+            extra = t_sample[si] - t
+            cum_here = cum_p + p * extra
+            p_sample[si] = p
+            avg_sample[si] = cum_here / t_sample[si] if t_sample[si] > 0 else p
+            si += 1
+
+        cum_p += p * dt
+        t = t_new
+
+        # Fire reaction
+        r = rng.random()*a_tot
+        if r < a1: m += 1
+        elif r < a1+a2: p += 1
+        elif r < a1+a2+a3: m -= 1
+        elif r < a1+a2+a3+a4: p -= 1
+        elif r < a1+a2+a3+a4+a5: z1 += 1
+        elif r < a1+a2+a3+a4+a5+a6: z2 += 1
+        else: z1 -= 1; z2 -= 1
+
+    # Fill remaining samples
+    while si < n_samples:
+        p_sample[si] = p
+        avg_sample[si] = cum_p / t_sample[si] if t_sample[si] > 0 else p
+        si += 1
+
+    return t_sample, p_sample, avg_sample
+
+T = 500.0
+eta = 100
+
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+fig.subplots_adjust(left=0.09, right=0.97, top=0.92, bottom=0.08,
+                    hspace=0.18)
+fig.suptitle(r"Ergodicity: time-average of a single trajectory $\to$"
+             r" $p^* = \mu/\theta = 1$",
+             fontsize=15, fontweight="bold")
+
+configs = [(1, "Stable ($k=1$)", ax1),
+           (5, "Limit cycle ($k=5$)", ax2)]
+
+for k, label, ax in configs:
+    ts, ps, avgs = ssa_with_running_avg(k, eta, T, seed=42, n_samples=3000)
+
+    ax.plot(ts, ps, color=BLUE, lw=0.4, alpha=0.35,
+            label=r"$P(t)$ (single trajectory)")
+    ax.plot(ts, avgs, color=ORANGE, lw=2.5,
+            label=r"$\frac{1}{t}\int_0^t P(s)\,ds$ (time average)")
+    ax.axhline(1.0, color=GREEN, lw=2.0, ls="--",
+               label=r"$p^* = \mu/\theta = 1$")
+
+    ax.set_ylabel(r"$P(t)$ / average")
+    ax.set_title(rf"$\eta = {eta}$, {label}", fontsize=13)
+    ax.set_xlim(0, T)
+    ax.legend(loc="upper right", framealpha=0.95, edgecolor="0.75")
+    ax.grid(True, alpha=0.15)
+
+ax2.set_xlabel("Time $t$")
+
+fig.savefig(f"{OUT}/aic_ergodicity.svg", bbox_inches="tight")
+fig.savefig("/home/claude/aic_ergodicity.png", dpi=200, bbox_inches="tight")
+plt.close()
+print("Saved aic_ergodicity.svg")
+
+# Print final averages
+for k in [1, 5]:
+    ts, ps, avgs = ssa_with_running_avg(k, eta, T, seed=42, n_samples=3000)
+    print(f"  k={k}: final time-avg = {avgs[-1]:.4f} (target: 1.0)")

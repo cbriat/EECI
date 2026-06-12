@@ -1,0 +1,102 @@
+"""
+AIC: deterministic vs stochastic mean. eta=100 for both.
+Figure 1: k=1 (stable)  — both converge.
+Figure 2: k=5 (limit cycle) — det oscillates, stoch mean converges.
+"""
+import numpy as np
+from scipy.integrate import solve_ivp
+import matplotlib, matplotlib.pyplot as plt
+
+matplotlib.rcParams.update({
+    "svg.fonttype": "path", "mathtext.fontset": "cm",
+    "font.family": "serif", "font.size": 14,
+    "axes.labelsize": 16, "axes.titlesize": 15,
+    "legend.fontsize": 11, "xtick.labelsize": 13, "ytick.labelsize": 13,
+    "lines.linewidth": 2.5, "axes.linewidth": 0.8,
+    "axes.spines.top": False, "axes.spines.right": False,
+})
+BLUE="#0072BD"; ORANGE="#D95319"; GRAY="0.55"
+OUT = "/mnt/user-data/outputs"
+
+def rhs_det(t, z, k, eta):
+    m, p, z1, z2 = z
+    return [k*z1 - m, m - p, 1 - eta*z1*z2, p - eta*z1*z2]
+
+def ssa_trajectory(k, eta, T, seed, t_grid):
+    rng = np.random.default_rng(seed)
+    m, p, z1, z2 = 0, 0, 5, 0
+    t = 0.0
+    times = [0.0]; prots = [0]
+    while t < T:
+        a1 = k*z1; a2 = float(m); a3 = float(m)
+        a4 = float(p); a5 = 1.0; a6 = float(p)
+        a7 = eta*z1*z2
+        a_tot = a1+a2+a3+a4+a5+a6+a7
+        if a_tot <= 0: break
+        dt = rng.exponential(1.0/a_tot)
+        t += dt
+        r = rng.random()*a_tot
+        if r < a1: m += 1
+        elif r < a1+a2: p += 1
+        elif r < a1+a2+a3: m -= 1
+        elif r < a1+a2+a3+a4: p -= 1
+        elif r < a1+a2+a3+a4+a5: z1 += 1
+        elif r < a1+a2+a3+a4+a5+a6: z2 += 1
+        else: z1 -= 1; z2 -= 1
+        times.append(t); prots.append(p)
+    times = np.array(times); prots = np.array(prots)
+    idx = np.clip(np.searchsorted(times, t_grid, side="right")-1,
+                  0, len(prots)-1)
+    return prots[idx]
+
+def make_figure(k, eta, T, n_runs, title_extra, fname):
+    t_grid = np.linspace(0, T, 600)
+    z0 = [0, 0, 5, 0]
+    sol = solve_ivp(lambda t,z: rhs_det(t,z,k,eta),
+                    [0, T], z0, t_eval=t_grid, rtol=1e-10)
+    p_det = sol.y[1]
+
+    p_runs = np.zeros((n_runs, len(t_grid)))
+    for r in range(n_runs):
+        p_runs[r] = ssa_trajectory(k, eta, T, seed=r, t_grid=t_grid)
+        if (r+1) % 250 == 0:
+            print(f"    run {r+1}/{n_runs}", flush=True)
+    p_mean = p_runs.mean(axis=0)
+    p_q25 = np.percentile(p_runs, 25, axis=0)
+    p_q75 = np.percentile(p_runs, 75, axis=0)
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    fig.subplots_adjust(left=0.10, right=0.96, top=0.88, bottom=0.12)
+
+    ax.fill_between(t_grid, p_q25, p_q75, alpha=0.15, color=BLUE,
+                    label="Stoch. IQR (25th-75th)")
+    ax.plot(t_grid, p_mean, color=BLUE, lw=2.5,
+            label=rf"$E[P(t)]$ (SSA, {n_runs} runs)")
+    ax.plot(t_grid, p_det, color=ORANGE, lw=2.5, ls="--",
+            label=r"$p(t)$ (deterministic ODE)")
+    ax.axhline(1.0, color=GRAY, lw=1.0, ls=":", alpha=0.6,
+               label=r"$p^* = \mu/\theta = 1$")
+
+    ax.set_xlabel("Time $t$")
+    ax.set_ylabel(r"Protein $P(t)$")
+    ax.set_title(
+        rf"$k = {k}$, $\eta = {eta}$  —  {title_extra}",
+        fontsize=14, fontweight="bold")
+    ax.set_xlim(0, T)
+    ax.legend(loc="upper right", framealpha=0.95, edgecolor="0.75")
+    ax.grid(True, alpha=0.15)
+
+    fig.savefig(f"{OUT}/{fname}.svg", bbox_inches="tight")
+    fig.savefig(f"/home/claude/{fname}.png", dpi=200, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved {fname}.svg")
+
+print("Figure 1 (k=1, eta=100, stable):")
+make_figure(k=1, eta=100, T=35, n_runs=1000,
+            title_extra="deterministic stable, both converge",
+            fname="aic_stable")
+
+print("Figure 2 (k=5, eta=100, limit cycle):")
+make_figure(k=5, eta=100, T=50, n_runs=1000,
+            title_extra="deterministic limit cycle, stochastic mean converges",
+            fname="aic_limit_cycle")

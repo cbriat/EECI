@@ -1,0 +1,90 @@
+"""
+Non-uniqueness of dual-rail for dx/dt = -x^3 + 1.
+Two valid representations, same x = x+ - x-, different (x+, x-).
+"""
+import numpy as np
+from scipy.integrate import solve_ivp
+import matplotlib, matplotlib.pyplot as plt
+
+matplotlib.rcParams.update({
+    "svg.fonttype": "path", "mathtext.fontset": "cm",
+    "font.family": "serif", "font.size": 14,
+    "axes.labelsize": 16, "axes.titlesize": 15,
+    "legend.fontsize": 11, "xtick.labelsize": 13, "ytick.labelsize": 13,
+    "lines.linewidth": 2.5, "axes.linewidth": 0.8,
+    "axes.spines.top": False, "axes.spines.right": False,
+})
+BLUE="#0072BD"; ORANGE="#D95319"; GREEN="#77AC30"
+PURPLE="#7E2F8E"; GRAY="0.55"
+OUT = "/mnt/user-data/outputs"
+
+eta = 1.0
+T = 8.0
+
+# Original system
+def rhs_orig(t, z):
+    x = z[0]
+    return [-x**3 + 1]
+
+# Representation 1
+def rhs_rep1(t, z):
+    xp, xm = z
+    return [-(xp)**3 - 3*xp*(xm)**2 + 1 - eta*xp*xm,
+            -(xm)**3 - 3*xm*(xp)**2     - eta*xp*xm]
+
+# Representation 2
+def rhs_rep2(t, z):
+    xp, xm = z
+    return [-(xp)**3 + (xm)**3 - 3*xp*(xm)**2 + 1 - eta*xp*xm,
+            -3*xm*(xp)**2                           - eta*xp*xm]
+
+# Start from minimal decomposition: x(0) = -1
+x0 = -1.0
+xp0 = 0.0
+xm0 = 1.0
+
+te = np.linspace(0, T, 500)
+
+sol_orig = solve_ivp(rhs_orig, [0, T], [x0], t_eval=te, rtol=1e-10)
+sol_r1 = solve_ivp(rhs_rep1, [0, T], [xp0, xm0], t_eval=te, rtol=1e-10)
+sol_r2 = solve_ivp(rhs_rep2, [0, T], [xp0, xm0], t_eval=te, rtol=1e-10)
+
+x_orig = sol_orig.y[0]
+xp1, xm1 = sol_r1.y[0], sol_r1.y[1]
+xp2, xm2 = sol_r2.y[0], sol_r2.y[1]
+
+err1 = np.max(np.abs((xp1 - xm1) - x_orig))
+err2 = np.max(np.abs((xp2 - xm2) - x_orig))
+print(f"Rep 1: max|x+ - x- - x| = {err1:.2e}")
+print(f"Rep 2: max|x+ - x- - x| = {err2:.2e}")
+
+# ── Figure ────────────────────────────────────────────────────
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.5), sharey=True)
+fig.subplots_adjust(left=0.08, right=0.97, top=0.86, bottom=0.12,
+                    wspace=0.12)
+fig.suptitle(
+    r"Non-uniqueness of dual-rail: $\dot x = -x^3 + 1$, "
+    rf"$\eta = {eta:.0f}$, $x(0) = {x0}$",
+    fontsize=14, fontweight="bold")
+
+for ax, xp, xm, label in [(ax1, xp1, xm1, "Representation 1"),
+                            (ax2, xp2, xm2, "Representation 2")]:
+    ax.plot(te, x_orig, color=GRAY, lw=2.0, ls="--",
+            label=r"$x(t)$ (original)")
+    ax.plot(te, xp, color=BLUE, lw=2.5,
+            label=r"$x^+(t)$")
+    ax.plot(te, xm, color=ORANGE, lw=2.5,
+            label=r"$x^-(t)$")
+    ax.plot(te, xp - xm, color=GREEN, lw=2.0, ls=":",
+            label=r"$x^+ - x^-$")
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.set_xlabel("Time $t$")
+    ax.set_title(label, fontsize=13)
+    ax.legend(loc="center right", framealpha=0.95, edgecolor="0.75")
+    ax.grid(True, alpha=0.15)
+
+ax1.set_ylabel(r"$x(t)$, $x^\pm(t)$")
+
+fig.savefig(f"{OUT}/dual_rail_nonlinear.svg", bbox_inches="tight")
+plt.close()
+print("Saved dual_rail_nonlinear.svg")
